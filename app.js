@@ -47,8 +47,10 @@ try{
       console.warn("Offline persistence not enabled:", err.code);
     });
   }
-}catch(e){
-  firebaseReady = false;
+catch(e){
+    console.error("Firebase Init Error:", e);
+    alert("Firebase Error: " + e.message);
+    firebaseReady = false;
 }
 
 function schoolWhatsApp(){ return (db && db.settings && db.settings.whatsapp) ? db.settings.whatsapp : ""; }
