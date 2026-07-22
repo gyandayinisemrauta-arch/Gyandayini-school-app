@@ -1,112 +1,122 @@
-/**
- * School Management System - Core Application Logic
- * Firebase Engine with Safe Startup & Offline Handling
- */
-
-// 1. Firebase Configuration Placeholder
-const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
+window.onerror = function(msg, url, line, col, error){
+  try{
+    const b = document.getElementById('configBanner');
+    if(b){ b.textContent = '⚠ App error: ' + msg + ' (line ' + line + ')'; b.className = 'config-banner'; b.style.display = 'block'; }
+  }catch(e){}
+  console.error('Global error:', msg, 'at line', line, error);
+  return false;
 };
 
-let db = null;
-let auth = null;
-
-// Helper: Show Toast Messages
-function showToast(message, isError = false) {
-    const toast = document.getElementById('toast-message');
-    if (!toast) return;
-    toast.innerText = message;
-    toast.className = `toast ${isError ? 'toast-error' : 'toast-success'}`;
-    setTimeout(() => {
-        toast.className = 'toast hidden';
-    }, 4000);
-}
-
-// Helper: Loader Control
-function setLoader(show, statusText = '') {
-    const loader = document.getElementById('app-loader');
-    const loaderStatus = document.getElementById('loader-status');
-    const appContent = document.getElementById('app-content');
-
-    if (loaderStatus && statusText) loaderStatus.innerText = statusText;
-
-    if (show) {
-        if (loader) loader.classList.remove('hidden');
-        if (appContent) appContent.classList.add('hidden');
-    } else {
-        if (loader) loader.classList.add('hidden');
-        if (appContent) appContent.classList.remove('hidden');
-    }
-}
-
-// 2. Safe Firebase Initialization
-function initializeFirebaseApp() {
-    try {
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        db = firebase.firestore();
-        auth = firebase.auth();
-
-        // Enable Persistence with Fail-safe Error Handling
-        db.enablePersistence({ synchronizeTabs: true })
-            .catch((err) => {
-                if (err.code === 'failed-precondition') {
-                    console.warn('Multiple tabs open; offline persistence disabled for this tab.');
-                } else if (err.code === 'unimplemented') {
-                    console.warn('Current browser does not support offline persistence.');
-                }
-            });
-
-        console.log("Firebase Engine initialized successfully.");
-        return true;
-    } catch (error) {
-        console.error("Firebase Initialization Failure:", error);
-        setLoader(true, "Firebase कनेक्शन विफल! कृपया सेटिंग्स जांचें।");
-        showToast("Firebase initialization error: " + error.message, true);
-        return false;
-    }
-}
-
-// 3. Application Startup Sequence
-document.addEventListener('DOMContentLoaded', () => {
-    setLoader(true, "सिस्टम से जुड़ रहे हैं...");
-
-    const isInitialized = initializeFirebaseApp();
-    if (!isInitialized) return;
-
-    // Network Status Monitoring
-    window.addEventListener('online', updateNetworkStatus);
-    window.addEventListener('offline', updateNetworkStatus);
-    updateNetworkStatus();
-
-    // Setup UI Tab Navigation
-    setupTabNavigation();
-
-    // Setup Form Submissions
-    setupStudentForms();
-
-    // Register Firestore Real-time Listeners safely
-    bindRealtimeListeners();
-
-    // Register Service Worker for PWA / Caching
-    registerServiceWorker();
-
-    // Complete Startup
-    setTimeout(() => {
-        setLoader(false);
-    }, 600);
+window.addEventListener('unhandledrejection', function(event) {
+  console.warn('Unhandled Promise Rejection caught:', event.reason);
+  finishBoot();
 });
 
-// 4. Network Status Handler
-function updateNetworkStatus() {
-    const badge = document.getElementById('network-status');
-    if (!badge) return;
+/* =======================================================================
+   FIREBASE SETUP
+   ---------------------------------------------------------------------
+   Replace the placeholder values below with your Firebase Project Config.
+   ======================================================================= */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+const SCHOOL_NAME = "Gyan Dayini Bal Mandir";
+const LOGO_DATA_URI = "data:image/png;base64,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" alt="School Logo" style="width:100%;height:100%;object-fit:contain;">
+    </div>
+    <p class="brand-name">Gyan Dayini Bal Mandir</p>
+    <p class="brand-loc">Semrauta, Tiloi, Amethi</p>
+    <p class="brand-tag">School Management System</p>
+
+    <div class="field">
+      <label for="user">Username</label>
+      <input id="user" type="text" placeholder="e.g. admin" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="pass">Password</label>
+      <input id="pass" type="password" placeholder="••••••••" autocomplete="off">
+    </div>
+    <button class="login-btn" onclick="attemptLogin()">Log In</button>
+    <p class="login-msg" id="loginMsg"></p>
+    <p style="text-align:center; margin-top:6px;"><a href="#" onclick="showForgotPassword(); return false;" style="font-size:12.5px; color:var(--ink-soft); text-decoration:underline;">Forgot password?</a></p>
+
+    <div class="demo-box">
+      <span class="dhead">Demo accounts</span>
+      <b>admin</b> / admin123 — Administrator<br>
+      <b>teacher1</b> / teach@01 — Teacher<br>
+      <b>accounts</b> / fees@2026 — Accountant
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div class="app" id="app">
+  <div class="sidebar" id="sidebar">
+    <div class="side-brand">
+      <div class="crest"><img src="data:image/png;base64,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v/Xvd//39d3/4fXffv++/254+vf/9d/9e/+v063vvff9v3950/d73//+97e93///O++/8e5///m753/v//9v+/vf/3m2+/8S/N+u+93//3//4929c3t7//0v3f2/9//f1+v8m3//7b//e/99s2dveefd3//Xfffff/ff85918yP/96f30d3v2f3X///0/++/++/v/fO++/+d+///7e1u1Pveee/f/ve3u3fe++/ff3X///veeeeffvv2f293994p/4I31113r//XvX+/vef3f//994M1/3s/A831a2v32///2ff0//++/f//8u3v3fffb3+5u//b27/+1u3e/d///e/d9ff4G/4b5+p374f/3f82mEa+Iq8v95e99vveeeceeffe95e/++/ffffed//0v3//f/++7//74Hvvff9/+8E84O3m6l81155sYp5+sL2sM6I9X1/xO2x6/o4m8E7eM4X0+q6a/mI1P4f/+/2764fvvf+/229/93s1s/0A4eX3X37xR15f2a1p+p1s315694N2c9pG3P1/9//4r//e/924f/Xvfffvf//995e+e+54+8/+/fe///94/8fXvne4e///ve9/+/O//++e9+///33vff++e+88sO1Pff/fefed//3u5f/9+/d+50/f++f/+v/e+94+sX339///f+//e/7/s2f/8e5u3vve/e34//++514+7P8N9u13s37/v3S2P2/ve/d//ve/ff++/3u5r2d/r/94/w2cO/Xf+I/xPz1l3A==" alt="School Logo" style="width:100%;height:100%;object-fit:contain;"></div>
+      <div class="side-brand-text">Gyan Dayini<br>Bal Mandir</div>
+    </div>
+    <div class="nav-item active" data-view="dashboard"><span class="ic">◆</span><span>Dashboard</span></div>
+    <div class="nav-item" data-view="students"><span class="ic">◆</span><span>Students</span></div>
+    <div class="nav-item" data-view="alumni"><span class="ic">◆</span><span>Alumni</span></div>
+    <div class="nav-item" data-view="attendance"><span class="ic">◆</span><span>Attendance</span></div>
+    <div class="nav-item" data-view="staff"><span class="ic">◆</span><span>Staff</span></div>
+    <div class="nav-item" data-view="fees"><span class="ic">◆</span><span>Fees</span></div>
+    <div class="nav-item" data-view="exams"><span class="ic">◆</span><span>Exams</span></div>
+    <div class="nav-item" data-view="timetable"><span class="ic">◆</span><span>Timetable</span></div>
+    <div class="nav-item" data-view="transport"><span class="ic">◆</span><span>Transport</span></div>
+    <div class="nav-item" data-view="announcements"><span class="ic">◆</span><span>Announcements</span></div>
+    <div class="nav-item" data-view="homework"><span class="ic">◆</span><span>Homework</span></div>
+    <div class="nav-item" data-view="access"><span class="ic">◆</span><span>User Access</span></div>
+    <div class="nav-item" data-view="salary"><span class="ic">◆</span><span>Salary</span></div>
+    <div class="nav-item" data-view="settings"><span class="ic">◆</span><span>Settings</span></div>
+    <div class="nav-spacer"></div>
+    <div class="principal-chip">
+      <div class="pc-lbl">Principal</div>
+      <div class="pc-name">Mr. Arun Mishra</div>
+    </div>
+    <div class="logout-item" onclick="doLogout()">Log Out</div>
+  </div>
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()"><span></span></div>
+        <h1 id="viewTitle">Dashboard</h1>
+      </div>
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div class="savebar" id="onlineStatus"><span class="dot"></span><span id="onlineStatusText">Online</span></div>
+        <div class="savebar" id="saveBar"><span class="dot"></span><span id="saveBarText">All changes saved</span></div>
+        <div class="userchip">
+          <div class="avatar" id="avatarInit">A</div>
+          <div>
+            <div id="chipName" style="font-weight:600;">—</div>
+            <div class="role" id="chipRole">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<!-- ================= MODAL ================= -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<div id="printArea"></div>
+<div id="pdfRenderArea" style="position:fixed; left:-9999px; top:0;"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
     if (navigator.onLine) {
         badge.innerText = "ऑनलाइन";
         badge.className = "status-badge online";
