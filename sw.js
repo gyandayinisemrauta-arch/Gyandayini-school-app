@@ -1,70 +1,35 @@
+// Cache version — bump this any time you want to force all clients to
+// discard old cached files and fetch fresh ones.
 const CACHE_NAME = 'gdbm-school-v2';
-const APP_SHELL = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
-];
+const APP_SHELL = ['./manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
-  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).catch(() => {})
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).catch(()=>{})
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.map(key => {
-        if (key !== CACHE_NAME) {
-          return caches.delete(key);
-        }
-      })
-    )).then(() => self.clients.claim())
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
   );
+  self.clients.claim();
 });
 
+// Network-first for EVERYTHING (index.html, app.js, style.css, icons).
+// This guarantees you always get the latest deployed files whenever you
+// have a connection. The cache is only used as a fallback when the
+// network request fails (i.e. genuinely offline), so the app can still
+// open — just showing the last successfully-loaded version.
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-
-  // Bypass Service Worker for Firebase APIs and external CDNs
-  if (url.origin.includes('firestore.googleapis.com') ||
-      url.origin.includes('firebase') ||
-      url.origin.includes('identitytoolkit') ||
-      url.origin.includes('gstatic.com') ||
-      url.origin.includes('cdnjs.cloudflare.com')) {
-    return;
-  }
-
-  // Navigation requests (HTML page): Network-first
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then(networkResponse => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put('./index.html', clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-
-  // Static assets: Network-first, fallback to cache
+  if (event.request.method !== 'GET') return;
   event.respondWith(
     fetch(event.request)
-      .then(networkResponse => {
-        if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
-          const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return networkResponse;
+      .then(response => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(()=>{});
+        return response;
       })
       .catch(() => caches.match(event.request))
   );
